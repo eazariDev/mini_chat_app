@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat App</title>
+    <!-- Link to the external CSS file -->
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="chat-container">
+        <div class="chat-header">Chat Application</div>
+        <ul id="messages"></ul>
+
+                <!-- Registration and Login forms -->
+        <div class="auth-container" id="authContainer">
+            <!-- Registration Form -->
+            <div class="registration-form" id="registrationForm">
+                <input type="text" id="registerUsername" placeholder="Enter username" autocomplete="off" />
+                <input type="password" id="registerPassword" placeholder="Enter password" autocomplete="off" />
+                <button id="registerButton">Register</button>
+                <div id="registerMessage" style="color: red;"></div>
+            </div>
+
+            <!-- Login Form -->
+            <div class="login-form" id="loginForm">
+                <input type="text" id="loginUsername" placeholder="Enter username" autocomplete="off" />
+                <input type="password" id="loginPassword" placeholder="Enter password" autocomplete="off" />
+                <button id="loginButton">Login</button>
+                <div id="loginMessage" style="color: red;"></div>
+            </div>
+        </div>
+
+        <form id="form" action="" style="display:none;">
+            <input id="input" autocomplete="off" placeholder="Type a message..." />
+            <button>Send</button>
+        </form>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const socket = io();
+        //my code: max number of messages to display
+        const MAX_MESSAGES = 10;
+        let username = null;
+
+        //my code:store the current online users
+        let onlineUsers = [];
+
+        //my code: register logic
+        document.getElementById('registerButton').addEventListener('click', async () => {
+            const registerUsername = document.getElementById('registerUsername').value;
+            const registerPassword = document.getElementById('registerPassword').value;
+
+            if (registerUsername && registerPassword) {
+                const response = await fetch('/api/register', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ username: registerUsername, password: registerPassword })
+                });
+
+                const data = await response.json();
+                if (response.ok) {
+                    document.getElementById('registerMessage').style.color = 'green';
+                    document.getElementById('registerMessage').textContent = data.message;
+                } else {
+                    document.getElementById('registerMessage').style.color = 'red';
+                    document.getElementById('registerMessage').textContent = data.message;
+                }
+            } else {
+                document.getElementById('registerMessage').textContent = 'Please fill in both fields.';
+            }
+        });
+
+        //my code: Login logic
+        document.getElementById('loginButton').addEventListener('click', async () => {
+            const loginUsername = document.getElementById('loginUsername').value;
+            const loginPassword = document.getElementById('loginPassword').value;
+
+            if (loginUsername && loginPassword) {
+                const response = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ username: loginUsername, password: loginPassword })
+                });
+
+                const data = await response.json();
+                if (response.ok) {
+                    document.getElementById('loginMessage').style.color = 'green';
+                    document.getElementById('loginMessage').textContent = data.message;
+
+                    // If login is successful, store username and show the chat
+                    username = loginUsername;
+                    socket.emit('set username', username);
+
+                    document.getElementById('form').style.display = 'flex';
+                    document.querySelector('.auth-container').style.display = 'none';
+                } else {
+                    document.getElementById('loginMessage').style.color = 'red';
+                    document.getElementById('loginMessage').textContent = data.message;
+                }
+            } else {
+                document.getElementById('loginMessage').textContent = 'Please fill in both fields.';
+            }
+        });
+
+        //my code: function to trim the message list if it exceeds the max limit
+        function trimMessages() {
+            const messageList = document.getElementById('messages');
+            while (messageList.children.length > MAX_MESSAGES) {
+                messageList.removeChild(messageList.firstChild);
+            }
+        }
+
+        //my code: to check if a user is online
+        function isUserOnline(user) {
+            return onlineUsers.includes(user);
+        }
+
+        //my code: update message list to show online users
+        function updateMessageList() {
+            const messageItems = document.querySelectorAll('#messages li');
+            messageItems.forEach((li) => {
+                const username = li.getAttribute('data-username');
+                if (isUserOnline(username)) {
+                    li.querySelector('.username').textContent = `${username}(online):`;
+                } else {
+                    li.querySelector('.username').textContent = `${username}:`;
+                }
+            });
+        }
+
+        // Display chat history on load
+        socket.on('chat history', (messages) => {
+            const messageList = document.getElementById('messages');
+
+            //my code: clear the message list
+            messageList.innerHTML = '';
+
+            messages.forEach((msg) => {
+                const li = document.createElement('li');
+                li.classList.add('message');
+                //my code
+                li.setAttribute('data-username', msg.username);
+                li.innerHTML = `<span class="username">${msg.username}:</span> ${msg.message} <span class="timestamp">[${new Date(msg.timestamp).toLocaleTimeString()}]</span>`;
+                messageList.appendChild(li);
+            });
+
+            //my code: ensure to display only the last 10 messages
+            trimMessages();
+            //my code: update the online status in messages
+            updateMessageList();
+        });
+
+        // Add message to the list when received
+        socket.on('chat message', (msg) => {
+            const messageList = document.getElementById('messages');
+            const li = document.createElement('li');
+            li.classList.add('message');
+            //my code
+            li.setAttribute('data-username', msg.username);
+            li.innerHTML = `<span class="username">${msg.username}:</span> ${msg.message} <span class="timestamp">[${new Date(msg.timestamp).toLocaleTimeString()}]</span>`;
+            messageList.appendChild(li);
+
+            //my code: trim the message list to display only 10 last messages
+            trimMessages();
+            //my code: update the online status in messages
+            updateMessageList();
+        });
+
+        //my code: update the list of online users
+        socket.on('online users', (users) => {
+            onlineUsers = users;
+            updateMessageList();
+        });
+
+        // Handle message form submission
+        const form = document.getElementById('form');
+        const input = document.getElementById('input');
+
+        form.addEventListener('submit', (e) => {
+            e.preventDefault();
+            if (input.value) {
+                socket.emit('chat message', input.value);
+                input.value = '';
+            }
+        });
+    </script>
+</body>
+</html>
